@@ -1,55 +1,67 @@
 # Weekly Brief, 2026-11-23
 
-_Test run. Saved manually because that run had no GitHub access. Uses the older single-solution format._
+**Winner: Reviewers can't tell what an AI-agent PR really did, or whether it is safe to merge.**
 
-**Winner: ToolGate, a local proxy that auto-approves read-only MCP tool calls and sends risky ones to your phone.**
+**Evidence limits:** Search returned titles and links only. Pages were read through a fetch helper, so Reddit and X were not reached directly. Many quotes come from authors who sell a related tool. Several pages show no year. Pain evidence is moderate to good (the same complaint from several independent places). The India small-business niche had only founder pitches, so I treat it as thin.
 
-**Evidence limits:** Search returned titles and links only, not post text. Pages were read through a fetch helper. Reddit and X were not reached directly. Several quotes come from authors promoting their own tools. Evidence is moderate, not strong.
+**Repo check:** The repo was reachable. This replaces an earlier test brief for the same date (ToolGate, an MCP approval proxy). That brief is still in git history, so I did not repeat it. No other past weeks exist, so there is no rising signal yet. This week and last both sit in "friction when working with coding agents", but they are different problems.
 
 ## 1. Problem
-Developers using AI agents with MCP tools get asked to approve nearly every call, even read-only ones. The built-in allowlists often don't work. Overnight or unattended agents just stall. The only alternatives are "approve everything" or "run everything".
+Coding agents make PRs faster than people can read them. The reviewer gets a big diff with no clear statement of intent, no sign of what was actually run, and tests that may only confirm the agent's own mistakes. Review is now the bottleneck, and trust is the hard part. Who hurts: tech leads and maintainers on teams using Claude Code, Cursor or Codex. When: every day. How badly: high, because merges slow down or people start rubber-stamping.
 
 Quotes:
-- "Every MCP tool call prompts for approval on every invocation, forever." and "There is no working configuration short of Run Everything." (Mike_Hitchcock, Cursor forum, Aug 26, 2026) [link](https://forum.cursor.com/t/mcp-allowlist-entries-are-written-but-never-matched-every-mcp-call-re-prompts/169566)
-- "Every time the agent calls an MCP tool, it still asks me to approve, even though the tool is explicitly allowlisted." (Lai_Jinyi, Cursor forum, Jun 29, 2026) [link](https://forum.cursor.com/t/mcp-tools-in-permissions-allowlist-are-still-prompting-for-approval-every-time/164296)
-- "A single research task can trigger dozens of permission prompts for tools that literally cannot modify anything." (Claude Code issue thread, undated) [link](https://github.com/anthropics/claude-code/issues/25966)
+- "But the easier it gets to open a PR, the more PRs developers have to review." (Alice Moore, Builder.io, May 21, 2026, updated Oct 2) [link](https://builder.io/blog/developers-drowning-in-ai-prs)
+- "my PRs went from 20-line diffs to 800-line sprawls, and my review process hasn't kept up." (Prateek Saxena, Product Hunt thread, about mid-2026) [link](https://www.producthunt.com/p/mergeprotect)
+- "AI generated tests asserted that the defective behavior was correct" was a factor in every serious defect review this year. (HN user bunderbunder, about Oct 2026, paraphrased in the page summary) [link](https://news.ycombinator.com/item?id=50061356)
 
-Also: "Your agent is either off or full admin. There is nothing in between." (Marco Arras, dev.to, a pitch for his own gateway) [link](https://dev.to/marras0914/mcp-has-no-security-model-heres-how-to-fix-it-in-2-minutes-5f7o)
-
-**Who hurts:** anyone running Claude Code, Cursor or similar agents with several MCP servers, especially on long or unattended runs. It happens every session, and the severity is moderate to high.
+Also: "I was the bottleneck, and my team's velocity was capped by my reading speed." (freeCodeCamp author, quoted in [this post](https://dev.to/max_quimby/10x-prs-1x-reviewers-the-code-quality-bottleneck-166o), Jun 2026). The same post cites LinearB 2026: AI PRs wait 4.6x longer for review. That is a second-hand figure I did not check.
 
 ## 2. Why current tools fail
-- Each client's own allowlist is per-app, buggy, and can be bypassed with a local config change.
-- MCP gateways exist, for example Cordon, but only one self-promotional post was seen. Features and adoption are unverified.
-- Most of what was found has nothing to do with phone-based approval. Unattended runs just block.
+- AI review bots (Copilot review, Claude Code Review, Greptile) try to find bugs. Users say many flags are noise: "Half are the model hallucinating." (Aakash Gupta on X, via the dev.to post above). A bot approval can also satisfy a "needs approval" rule without a human reading anything ([Builder.io](https://builder.io/blog/developers-drowning-in-ai-prs)).
+- Claude Code Review is reported at $15-25 per review (same dev.to post, not verified).
+- PR caps only limit how many PRs arrive, not how hard each one is to read.
+- Tools like Code Board and MergeProtect look at risk or call graphs, but both appear small and unproven (0 reviews, 9 followers on MergeProtect).
+- None of them show the reviewer what the agent actually did during the session.
 
-## 3. Proposed solution (one core feature)
-A policy proxy that sits between any MCP client and its servers. A tool is auto-allowed when its name or annotations mark it read-only. Anything else goes to a queue, and you approve it from your phone, for example through Telegram.
+## 3. Three ways to solve it
 
-## 4. Architecture
-- **Stack:** Python or Node, using the MCP SDK, with a YAML policy file and SQLite for the audit log. A Telegram bot handles approvals.
-- **Components:** an MCP server facing the agent, an MCP client facing the real servers, a policy engine, an approval queue, and an audit log.
-- **Data flow:** agent calls tool, proxy checks policy. If read-only, forward it. If not, send a Telegram prompt, wait for the answer, then forward or deny. Log the result.
+### Approach A: Reviewer's guide bot (GitHub App)
+**Idea:** On every PR, a bot posts one comment: what the change does in plain words, the order to read files in (riskiest first), and what is untested. It never approves or rejects.
+**For:** Reviewers on teams that already use GitHub.
+**Architecture:** Next.js on Vercel for the webhook and GitHub App, a worker (Python, LangChain) that fetches the diff, runs tree-sitter for changed functions and their callers, an LLM writes the guide, Postgres stores results. Flow: webhook, diff, analysis, comment, update on new commits.
+**Hard part:** Making the guide trustworthy and short enough. A wrong summary is worse than none.
+**Verdict:** Easiest to ship, but the closest to existing review bots. Gap is moderate.
 
-## 5. MVP scope
-- **Week 1:** pass-through proxy for stdio MCP servers, a read-only classifier from tool annotations plus name rules, a YAML allow/deny file, and an audit log.
-- **Week 2:** Telegram approvals with a timeout and a default deny, a "remember this choice" option, and setup docs for Claude Code and Cursor.
+### Approach B: Proof bundle recorded on the author's machine
+**Idea:** A CLI wrapper records the agent session (commands run, tests run, files read) and attaches a signed "proof" to the PR: which changed lines the tests actually executed, and whether the new tests fail when the change is reverted.
+**For:** Developers who open agent PRs and want them accepted fast, plus their reviewers.
+**Architecture:** Python CLI hooking Claude Code and Cursor hooks or logs, coverage on changed lines, a revert-and-rerun check for new tests, output as JSON plus a markdown PR section, a small GitHub Action that verifies and displays it. Flow: session log, coverage and revert check, bundle, PR check.
+**Hard part:** Supporting many agents and test stacks, and stopping people from faking the bundle.
+**Verdict:** Most different from what exists and it targets the "tests confirm the bug" complaint directly, but setup effort per repo is real.
 
-## 6. Biggest risk
-Clients may fix their own allowlists soon. Read-only classification can also be wrong, because tool annotations are optional and many servers don't set them.
+### Approach C: Auto-split big agent changes into small stacked PRs
+**Idea:** Before pushing, the tool splits one large agent change into a stack of small PRs that each do one thing and each pass tests.
+**For:** The person who pushes the PR, not the reviewer.
+**Architecture:** Python or Node CLI, git hunk analysis, an LLM groups hunks by purpose, a dependency check so each step builds and passes tests, then it pushes a branch stack through the GitHub API. Flow: diff, group, validate each step, push stack.
+**Hard part:** Many agent changes are tangled, so clean splits often don't exist and each step must still compile.
+**Verdict:** Attacks size directly, but stacked-PR tools exist and the splits may be poor. Riskiest.
 
-## 7. Runner-ups
-- **Pre-call agent budget enforcer:** a proxy that blocks a call before it fires. The pain is real, but many tools already pitch this, so the gap is thin. [example thread](https://forum.langchain.com/t/how-are-you-handling-runaway-agent-costs/3913)
-- **Project decision memory for coding agents:** a store for the "why" behind architecture choices, shared across sessions. The complaint is common, but memory tools are crowded. [example](https://www.producthunt.com/p/ai-dimag/what-s-the-most-annoying-thing-your-ai-coding-assistant-forgets-between-sessions)
+## 4. Recommendation
+Build **Approach B** first, as a small CLI plus GitHub Action that checks only two things: do the tests touch the changed lines, and do the new tests fail without the change. That is a clear, checkable claim, not an opinion from an LLM. Add a short Approach A style summary later if people ask for it.
 
-## Wildcard and India niche
-No solid evidence this week for the Indian small business niche or a wildcard.
+**Biggest risk:** GitHub and the agent vendors could ship the same "what did the agent do" feature natively, and recording hooks differ across agents. A second risk is that most evidence is from people selling tools.
 
-## Scores (1-5)
-| Idea | Pain | Gap | Buildable in 4 weeks | Skills fit |
+## 5. Scores (1-5, my judgment)
+| Problem | Pain | Gap | Buildable in 4 weeks | Skills fit |
 |---|---|---|---|---|
-| ToolGate | 4 | 3 | 4 | 4 |
-| Budget enforcer | 4 | 2 | 4 | 4 |
-| Decision memory | 4 | 2 | 3 | 4 |
+| Agent PR review trust | 5 | 3 | 3 | 4 |
+| Cheap replay of failed agent runs | 3 | 4 | 4 | 5 |
+| Secrets exposed to coding agents | 4 | 2 | 4 | 3 |
+| Indian small-shop bookkeeping on WhatsApp | 3 | 2 | 3 | 4 |
 
-The scores are judgment, not measured data.
+## 6. Runner-ups
+- **Replay failed agent runs without paying for them again:** record a run once and replay it against the same tool outputs. People say "Nobody has really solved this problem yet" and "It's not reproducible on demand", but all sources sell their own tool, so evidence is weak. [link](https://dev.to/rudrendu_paul/how-we-built-a-way-to-replay-ai-agent-failures-without-paying-to-reproduce-them-4917)
+- **Keeping secrets away from coding agents:** `.claudeignore` and `.gitignore` don't stop reads ([The Register, Jan 28, 2026](https://www.theregister.com/2026/01/28/claude_code_ai_secrets_files/)), but at least four tools already exist (Cloak, Tene, Klavex, octarine), so the gap is small.
+
+## 7. India small business and wildcard
+Only founder pitches turned up, such as "Most billing apps are too complex for a kirana store owner" ([Khata Bhai](https://www.producthunt.com/p/khata-bhai/khata-bhai)) and "bloated, complicated, or just overkill" ([KhataPlus](https://www.producthunt.com/p/khataplus/khataplus)). These are makers' framing, not shop-owner voices, and Vyapar, Khatabook, Tally and Zoho already exist. A WhatsApp-first bookkeeping bot is the recurring idea, but I found no shop owners complaining directly. No wildcard with solid evidence this week.
